@@ -24,11 +24,23 @@
 
 # Fábrica -> Lojista -> Consumidor
 
+# Documentação Swagger -> Documentar os endpoints da nossa aplicação (da nossa API)
+
+# Olha, acessa minha documentação swagger nesse endpoint -> http://endpointdelivros/docs/
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-app = FastAPI()
+app = FastAPI(
+    title="API de Livros",
+    description="API para gerenciar catálogo de livros.",
+    version="1.0.0",
+    contact={
+        "name":"Atilio Hector",
+        "email":"thehacktour@gmail.com"
+    }
+)
 
 meus_livrozinhos = {}
 
