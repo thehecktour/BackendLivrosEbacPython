@@ -28,9 +28,11 @@
 
 # Olha, acessa minha documentação swagger nesse endpoint -> http://endpointdelivros/docs/
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from typing import Optional
+import secrets
 
 app = FastAPI(
     title="API de Livros",
@@ -42,6 +44,11 @@ app = FastAPI(
     }
 )
 
+MEU_USUARIO = "admin"
+MINHA_SENHA = "admin123"
+
+security = HTTPBasic()
+
 meus_livrozinhos = {}
 
 class Livro(BaseModel):
@@ -49,12 +56,26 @@ class Livro(BaseModel):
     autor_livro: str
     ano_livro: int
 
+
+def autenticar_meu_usuario(credentials: HTTPBasicCredentials = Depends(security)):
+    is_username_correct = secrets.compare_digest(credentials.username, MEU_USUARIO)
+    is_password_correct = secrets.compare_digest(credentials.password, MINHA_SENHA)
+
+    if not (is_username_correct and is_password_correct):
+        raise HTTPException(
+            status_code=401,
+            detail="Usuario não autorizado! Credenciais inválidas!!!",
+            headers={"WWW-Authenticate": "Basic"}
+        )
+
+    return credentials
+
 @app.get("/")
 def hello_world():
     return {"Hello": "World!"}
 
 @app.get("/livros")
-def get_livros():
+def get_livros(credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
     if not meus_livrozinhos:
         return {"message": "Não existe nenhum livro!"}
     else:
@@ -68,7 +89,7 @@ def get_livros():
 
 
 @app.post("/adiciona")
-def post_livros(id_livro: int, livro: Livro):
+def post_livros(id_livro: int, livro: Livro, credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
     if id_livro in meus_livrozinhos:
         raise HTTPException(status_code=400, detail="Esse livro já existe, meu parceiro!")
     else:
@@ -85,7 +106,7 @@ def post_livros(id_livro: int, livro: Livro):
 # Chave -> Valor
 
 @app.put("/atualiza/{id_livro}")
-def put_livros(id_livro: int, livro: Livro):
+def put_livros(id_livro: int, livro: Livro, credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
     meu_livro = meus_livrozinhos.get(id_livro)
     if not meu_livro:
         raise HTTPException(status_code=404, detail="Esse livro não foi encontrado!")
@@ -98,7 +119,7 @@ def put_livros(id_livro: int, livro: Livro):
 
 
 @app.delete("/deletar/{id_livro}")
-def delete_livro(id_livro: int):
+def delete_livro(id_livro: int, credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
     if id_livro not in meus_livrozinhos:
         raise HTTPException(status_code=404, detail="Esse livro não foi encontrado!")
     else:
