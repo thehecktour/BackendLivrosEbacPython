@@ -34,6 +34,17 @@ from pydantic import BaseModel
 from typing import Optional
 import secrets
 
+from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session
+
+DATABASE_URL = "sqlite:///./livros.db"
+
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+
 app = FastAPI(
     title="API de Livros",
     description="API para gerenciar catálogo de livros.",
@@ -51,11 +62,28 @@ security = HTTPBasic()
 
 meus_livrozinhos = {}
 
+class LivroDB(Base):
+    __tablename__ = "livros"
+    id = Column(Integer, primary_key=True, index=True)
+    nome_livro = Column(String, index=True)
+    autor_livro = Column(String, index=True)
+    ano_livro = Column(Integer)
+
 class Livro(BaseModel):
     nome_livro: str
     autor_livro: str
     ano_livro: int
 
+Base.metadata.create_all(bind=engine)
+
+
+def sessao_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+        
 # Essa função tem a responsabilidade de validar o usuario e senha!
 def autenticar_meu_usuario(credentials: HTTPBasicCredentials = Depends(security)):
     is_username_correct = secrets.compare_digest(credentials.username, MEU_USUARIO)
@@ -75,30 +103,23 @@ def hello_world():
     return {"Hello": "World!"}
 
 @app.get("/livros")
-def get_livros(page: int = 1, limit: int = 10, credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
+def get_livros(page: int = 1, limit: int = 10, db: Session = Depends(sessao_db) , credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
     if page < 1 or limit < 1:
         raise HTTPException(status_code=400, detail="Page ou limit estão com valores inválidos!!!")
 
-    if not meus_livrozinhos:
+    livros = db.query(LivroDB).offset((page - 1) * limit).limit(limit).all()
+
+    if not livros:
         return {"message": "Não existe nenhum livro!!"}
 
-    livros_ordenados = sorted(meus_livrozinhos.items(), key=lambda x: x[0])
-
-    start = (page - 1) * limit
-    end = start + limit
-
-    livros_paginados = [
-        {"id": id_livro, "nome_livro": livro_data["nome_livro"], "autor_livro": livro_data["autor_livro"], "ano_livro": livro_data["ano_livro"]}
-        for id_livro, livro_data in livros_ordenados[start:end]
-    ]
+    total_livros = db.query(LivroDB).count()
 
     return {
         "page": page,
         "limit": limit,
-        "total": len(meus_livrozinhos),
-        "livros": livros_paginados
+        "total": total_livros,
+        "livros": [{"id": livro.id, "nome_livro": livro.nome_livro, "autor_livro": livro.autor_livro, "ano_livro": livro.ano_livro} for livro in livros]
     }
-
 
 # id do livro
 # nome do livro
@@ -107,12 +128,17 @@ def get_livros(page: int = 1, limit: int = 10, credentials: HTTPBasicCredentials
 
 
 @app.post("/adiciona")
-def post_livros(id_livro: int, livro: Livro, credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
-    if id_livro in meus_livrozinhos:
-        raise HTTPException(status_code=400, detail="Esse livro já existe, meu parceiro!")
-    else:
-        meus_livrozinhos[id_livro] = livro.dict()
-        return {"message": "O livro foi criado com sucesso!"}
+def post_livros(livro: Livro, db: Session = Depends(sessao_db) ,credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
+    db_livro = db.query(LivroDB).filter(LivroDB.nome_livro == livro.nome_livro, LivroDB.autor_livro == livro.autor_livro).first()
+    if db_livro:
+        raise HTTPException(status_code=400, detail="Esse livro já existe dentro do banco de dados!!!")
+
+    novo_livro = LivroDB(nome_livro=livro.nome_livro, autor_livro=livro.autor_livro, ano_livro=livro.ano_livro)
+    db.add(novo_livro)
+    db.commit()
+    db.refresh(novo_livro)
+
+    return {"message": "O livro foi criado com sucesso!"}
 
 
 # Fábrica -> Tênis que precisa ser mudado a cor!
@@ -124,22 +150,31 @@ def post_livros(id_livro: int, livro: Livro, credentials: HTTPBasicCredentials =
 # Chave -> Valor
 
 @app.put("/atualiza/{id_livro}")
-def put_livros(id_livro: int, livro: Livro, credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
-    meu_livro = meus_livrozinhos.get(id_livro)
-    if not meu_livro:
-        raise HTTPException(status_code=404, detail="Esse livro não foi encontrado!")
-    else:
-        # Eu jogo essa informação dentro do meu antigo dicionário (que é o meus_livrozinhos)
-        # E NÃOOOOO dentro da REFERENCIA do antigo dicionário
-        # Antigo dicionário != Referencia do antigo dicionário
-        meus_livrozinhos[id_livro] = livro.dict()
-        return {"message": "As informações do seu livro foram atualizadas com sucesso!"}
+def put_livros(id_livro: int, livro: Livro, db: Session = Depends(sessao_db),credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
+    db_livro = db.query(LivroDB).filter(LivroDB.id == id_livro).first()
+    if not db_livro:
+        raise HTTPException(status_code=404, detail="Este livro não foi encontrado no seu banco de dados!")
+    
+    db_livro.nome_livro = livro.nome_livro
+    db_livro.autor_livro = livro.autor_livro
+    db_livro.ano_livro = livro.ano_livro
 
+    db.commit()
+    db.refresh(db_livro)
+
+    return {"message": "O livro foi atualizado com sucesso!!!"}
 
 @app.delete("/deletar/{id_livro}")
-def delete_livro(id_livro: int, credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
-    if id_livro not in meus_livrozinhos:
-        raise HTTPException(status_code=404, detail="Esse livro não foi encontrado!")
-    else:
-        del meus_livrozinhos[id_livro]
-        return {"message": "Seu livro foi deletado com sucesso!"}
+def delete_livro(id_livro: int, db: Session = Depends(sessao_db) ,credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
+    db_livro = db.query(LivroDB).filter(LivroDB.id == id_livro).first()
+
+    if not db_livro:
+        raise HTTPException(status_code=404, detail="Este livro não foi encontrado no seu banco de dados!!!")
+
+    db.delete(db_livro)
+    db.commit()
+
+    return {"message": "Seu livro foi deletado com sucesso!"}
+
+
+# ACID
