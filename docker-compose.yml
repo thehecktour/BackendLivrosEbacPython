@@ -8,6 +8,17 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
-    environment:
-      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
     command: ["poetry", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+
+# Passo 1
+
+# Linux -> sudo apt update && sudo apt install -y podman
+# Mac -> brew install podman
+# Windows -> choco install podman-cli
+
+# Passo 2
+
+# Independe do sistema operacional -> pip install podman-compose
