@@ -1,5 +1,5 @@
 # API de Livros
-
+import asyncio
 # GET, POST, PUT, DELETE
 
 # POST - Adicionar novos Livros (Create)
@@ -105,12 +105,12 @@ def hello_world():
     return {"Hello": "World!"}
     
 @app.get("/livros")
-def get_livros(page: int = 1, limit: int = 10, db: Session = Depends(sessao_db) , credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
+async def get_livros(page: int = 1, limit: int = 10, db: Session = Depends(sessao_db) , credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
     if page < 1 or limit < 1:
         raise HTTPException(status_code=400, detail="Page ou limit estão com valores inválidos!!!")
 
     livros = db.query(LivroDB).offset((page - 1) * limit).limit(limit).all()
-
+    await asyncio.sleep(3)
     if not livros:
         return {"message": "Não existe nenhum livro!!"}
 
@@ -130,7 +130,7 @@ def get_livros(page: int = 1, limit: int = 10, db: Session = Depends(sessao_db) 
 
 
 @app.post("/adiciona")
-def post_livros(livro: Livro, db: Session = Depends(sessao_db) ,credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
+async def post_livros(livro: Livro, db: Session = Depends(sessao_db) ,credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
     db_livro = db.query(LivroDB).filter(LivroDB.nome_livro == livro.nome_livro, LivroDB.autor_livro == livro.autor_livro).first()
     if db_livro:
         raise HTTPException(status_code=400, detail="Esse livro já existe dentro do banco de dados!!!")
@@ -152,7 +152,7 @@ def post_livros(livro: Livro, db: Session = Depends(sessao_db) ,credentials: HTT
 # Chave -> Valor
 
 @app.put("/atualiza/{id_livro}")
-def put_livros(id_livro: int, livro: Livro, db: Session = Depends(sessao_db),credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
+async def put_livros(id_livro: int, livro: Livro, db: Session = Depends(sessao_db),credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
     db_livro = db.query(LivroDB).filter(LivroDB.id == id_livro).first()
     if not db_livro:
         raise HTTPException(status_code=404, detail="Este livro não foi encontrado no seu banco de dados!")
@@ -167,7 +167,7 @@ def put_livros(id_livro: int, livro: Livro, db: Session = Depends(sessao_db),cre
     return {"message": "O livro foi atualizado com sucesso!!!"}
 
 @app.delete("/deletar/{id_livro}")
-def delete_livro(id_livro: int, db: Session = Depends(sessao_db) ,credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
+async def delete_livro(id_livro: int, db: Session = Depends(sessao_db) ,credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
     db_livro = db.query(LivroDB).filter(LivroDB.id == id_livro).first()
 
     if not db_livro:
