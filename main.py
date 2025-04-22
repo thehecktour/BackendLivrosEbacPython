@@ -34,6 +34,8 @@ from pydantic import BaseModel
 from typing import Optional
 import secrets
 import os
+import redis
+import json
 
 from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
@@ -45,6 +47,7 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
 
 app = FastAPI(
     title="API de Livros",
@@ -78,6 +81,12 @@ class Livro(BaseModel):
 
 Base.metadata.create_all(bind=engine)
 
+def salvar_livro_redis(livro_id: int, livro: Livro):
+    redis_client.set(f"livro:{livro_id}", json.dumps(livro.dict()))
+
+def deletar_livro_redis(livro_id: int):
+    redis_client.delete(f"livro:{livro_id}")
+
 
 def sessao_db():
     db = SessionLocal()
@@ -103,6 +112,17 @@ def autenticar_meu_usuario(credentials: HTTPBasicCredentials = Depends(security)
 @app.get("/")
 def hello_world():
     return {"Hello": "World!"}
+
+@app.get("/debug/redis")
+def ver_livros_redis():
+    chaves = redis_client.keys("livro:*")
+    livros = []
+
+    for chave in chaves:
+        valor = redis_client.get(chave)
+        livros.append({"chave": chave, "valor": json.loads(valor)})
+    
+    return livros
     
 @app.get("/livros")
 async def get_livros(page: int = 1, limit: int = 10, db: Session = Depends(sessao_db) , credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
@@ -110,7 +130,6 @@ async def get_livros(page: int = 1, limit: int = 10, db: Session = Depends(sessa
         raise HTTPException(status_code=400, detail="Page ou limit estão com valores inválidos!!!")
 
     livros = db.query(LivroDB).offset((page - 1) * limit).limit(limit).all()
-    await asyncio.sleep(3)
     if not livros:
         return {"message": "Não existe nenhum livro!!"}
 
@@ -139,6 +158,8 @@ async def post_livros(livro: Livro, db: Session = Depends(sessao_db) ,credential
     db.add(novo_livro)
     db.commit()
     db.refresh(novo_livro)
+
+    salvar_livro_redis(novo_livro.id, livro)
 
     return {"message": "O livro foi criado com sucesso!"}
 
@@ -176,6 +197,7 @@ async def delete_livro(id_livro: int, db: Session = Depends(sessao_db) ,credenti
     db.delete(db_livro)
     db.commit()
 
+    deletar_livro_redis(id_livro)
     return {"message": "Seu livro foi deletado com sucesso!"}
 
 
