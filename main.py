@@ -115,32 +115,57 @@ def hello_world():
 
 @app.get("/debug/redis")
 def ver_livros_redis():
-    chaves = redis_client.keys("livro:*")
+    chaves = redis_client.keys("livros:*")
     livros = []
 
     for chave in chaves:
         valor = redis_client.get(chave)
-        livros.append({"chave": chave, "valor": json.loads(valor)})
+        ttl = redis_client.ttl(chave)
+
+        livros.append({"chave": chave, "valor": json.loads(valor), "ttl": ttl})
     
     return livros
     
 @app.get("/livros")
-async def get_livros(page: int = 1, limit: int = 10, db: Session = Depends(sessao_db) , credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)):
+def get_livros(
+    page: int = 1,
+    limit: int = 10,
+    db: Session = Depends(sessao_db),
+    credentials: HTTPBasicCredentials = Depends(autenticar_meu_usuario)
+):
     if page < 1 or limit < 1:
         raise HTTPException(status_code=400, detail="Page ou limit estão com valores inválidos!!!")
 
-    livros = db.query(LivroDB).offset((page - 1) * limit).limit(limit).all()
-    if not livros:
-        return {"message": "Não existe nenhum livro!!"}
+    cache_key = f"livros:page={page}&limit={limit}"
+    cached = redis_client.get(cache_key) 
 
+    if cached:
+        return json.loads(cached)
+
+    livros = db.query(LivroDB).offset((page - 1) * limit).limit(limit).all()
+
+    if not livros:
+        return {"message": "Não existe livro nenhum!!"}
+    
     total_livros = db.query(LivroDB).count()
 
-    return {
+    resposta = {
         "page": page,
         "limit": limit,
         "total": total_livros,
-        "livros": [{"id": livro.id, "nome_livro": livro.nome_livro, "autor_livro": livro.autor_livro, "ano_livro": livro.ano_livro} for livro in livros]
+        "livros": [
+            {
+                "id": livro.id,
+                "nome_livro": livro.nome_livro,
+                "autor_livro": livro.autor_livro,
+                "ano_livro": livro.ano_livro
+            } for livro in livros
+        ]
     }
+
+    redis_client.setex(cache_key, 30, json.dumps(resposta))
+
+    return resposta
 
 # id do livro
 # nome do livro
