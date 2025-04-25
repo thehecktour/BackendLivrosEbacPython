@@ -11,6 +11,7 @@ fastapi = {extras = ["standard"], version = "^0.115.6"}
 sqlalchemy = "^2.0.36"
 aiosqlite = "^0.20.0"
 redis = "^5.2.1"
+celery = "^5.5.1"
 
 
 [build-system]

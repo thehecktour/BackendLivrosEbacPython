@@ -36,6 +36,10 @@ import secrets
 import os
 import redis
 import json
+from fastapi import BackgroundTasks
+from tasks import fatorial, somar
+from celery_app import celery_app
+from celery.result import AsyncResult
 
 from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
@@ -47,7 +51,7 @@ engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-redis_client = redis.Redis(host='localhost', port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis(host='redis', port=6379, db=0, decode_responses=True)
 
 app = FastAPI(
     title="API de Livros",
@@ -112,6 +116,37 @@ def autenticar_meu_usuario(credentials: HTTPBasicCredentials = Depends(security)
 @app.get("/")
 def hello_world():
     return {"Hello": "World!"}
+
+@app.post("/calcular/soma")
+def calcular_soma(a: int, b: int):
+    tarefa = somar.delay(a,b)
+    return {
+        "task_id": tarefa.id,
+        "message":"Tarefa de soma enviada para execução!"
+    }
+
+@app.post("/calcular/fatorial")
+def calcular_fatorial(n: int):
+    tarefa = fatorial.delay(n)
+    return {
+        "task_id": tarefa.id,
+        "message": "Tarefa de fatorial enviada para execução!"
+    }
+
+@app.get("/tarefa/status/{task_id}")
+def tarefa_status(task_id: str):
+    resultado = AsyncResult(task_id, app=celery_app)
+
+    # Se não tiver nem status registrado e nem resultado, é provavelmente inválido
+    if resultado.status == "PENDING" and resultado.result is None:
+        raise HTTPException(status_code=404, detail="Tarefa não encontrada.")
+
+    return {
+        "task_id": task_id,
+        "status": resultado.status,
+        "result": resultado.result if resultado.successful() else None
+    }
+
 
 @app.get("/debug/redis")
 def ver_livros_redis():
