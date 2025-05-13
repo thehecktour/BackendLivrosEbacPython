@@ -34,7 +34,7 @@ def test_autenticacao_usuario_com_erro():
 def test_autenticacao_senha_com_erro():
     response = client.get(
         "/livros",
-        auth=("admin", "admin")
+        auth=("admin", "senha_incorreta")
     )
 
     assert response.status_code == 401
