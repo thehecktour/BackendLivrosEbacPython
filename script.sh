@@ -1,55 +1,50 @@
 #!/bin/bash
 
-set -e
+DEPLOYMENT="deployment.yaml"
+SERVICE="service.yaml"
 
-CLUSTER_NAME="livros"
-
-echo "🔍 Verificando se Colima está instalado..."
-if ! command -v colima &> /dev/null; then
-  echo "❌ Colima não está instalado!"
-  echo "💡 Instale com: brew install colima"
-  exit 1
-fi
-
-echo "🔍 Verificando se kind está instalado..."
-if ! command -v kind &> /dev/null; then
-  echo "❌ kind (Kubernetes in Docker) não está instalado!"
-  echo "💡 Instale com: brew install kind"
-  exit 1
-fi
-
-echo "▶️ Iniciando a VM do Colima com Docker (rootful)..."
-colima start --runtime docker --cpu 2 --memory 4096 --disk 20
-
-echo "🔍 Verificando se Docker está rodando corretamente com Colima..."
-if ! docker info > /dev/null 2>&1; then
-  echo "❌ Docker (via Colima) não está acessível!"
-  echo "💡 Algo deu errado com a inicialização. Tente: colima stop && colima start"
-  exit 1
-fi
-
-echo "🔎 Verificando se o cluster kind \"$CLUSTER_NAME\" já existe..."
-if kind get clusters | grep -q "$CLUSTER_NAME"; then
-  echo "✅ Cluster \"$CLUSTER_NAME\" já existe. Reutilizando..."
+# Verifica se o minikube está instalado e rodando
+if command -v minikube >/dev/null 2>&1; then
+  echo "Verificando se o minikube está rodando..."
+  if ! minikube status | grep -q "Running"; then
+    echo "Minikube não está rodando. Iniciando minikube..."
+    minikube start
+  else
+    echo "Minikube já está rodando."
+  fi
 else
-  echo "🚀 Criando novo cluster Kubernetes com kind..."
-  kind create cluster --name "$CLUSTER_NAME" --image kindest/node:v1.27.3
+  echo "Minikube não instalado, certifique-se de ter um cluster Kubernetes local ativo."
 fi
 
-echo "🐳 Buildando imagem da API com Docker..."
-docker build -t livros-api:latest .
+echo "Aplicando o deployment..."
+kubectl apply -f $DEPLOYMENT
 
-echo "📦 Carregando imagem no cluster kind \"$CLUSTER_NAME\"..."
-kind load docker-image livros-api:latest --name "$CLUSTER_NAME"
+echo "Aplicando o service..."
+kubectl apply -f $SERVICE
 
-echo "📄 Aplicando deployment no Kubernetes..."
-kubectl apply -f deployment.yaml
-
-echo "🌐 Aplicando service no Kubernetes..."
-kubectl apply -f service.yaml
-
-echo "⏳ Aguardando pod ficar disponível..."
+echo "Aguarde os pods iniciarem..."
 kubectl wait --for=condition=available --timeout=60s deployment/livros-api
 
-echo "🚪 Redirecionando porta para http://localhost:8000 ..."
-kubectl port-forward service/livros-api-service 8000:80
+echo "Iniciando port-forward para localhost:8000 -> service porta 80..."
+
+# Rodar o port-forward em background
+kubectl port-forward svc/livros-api-service 8000:80 >/dev/null 2>&1 &
+
+# Dá um tempinho para garantir que o port-forward iniciou
+sleep 3
+
+# Detecta sistema operacional para abrir navegador
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  xdg-open http://localhost:8000
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+  open http://localhost:8000
+elif [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]]; then
+  start http://localhost:8000
+else
+  echo "Abra seu navegador em: http://localhost:8000"
+fi
+
+echo "Aplicação disponível em http://localhost:8000"
+echo "Use Ctrl+C para parar o port-forward quando quiser."
+# Mantém o script rodando para não matar o port-forward
+wait
